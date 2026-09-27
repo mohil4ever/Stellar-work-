@@ -25,6 +25,8 @@ If you discover a security issue, please report it privately and do not open a p
 - We will coordinate disclosure timing with the reporter after a fix or mitigation is available.
 - Please avoid sharing exploit details publicly until coordinated disclosure is complete.
 
+####
+
 ## Bug Bounty
 
 We do not currently offer a monetary bug bounty program. However, we publicly acknowledge responsible disclosures in release notes (with the reporter's consent) and welcome contributions to fix validated issues.
