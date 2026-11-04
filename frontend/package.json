@@ -4,11 +4,12 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "check-translations": "node ../scripts/check-translations.mjs",
     "validate-env": "node scripts/validate-env.mjs",
     "prebuild": "npm run validate-env",
     "build": "next build",
     "start": "next start",
-    "analyze": "ANALYZE=true npm run build",
+    "analyze": "ANALYZE=true npm run build -- --webpack",
     "check-bundle-size": "node scripts/check-bundle-size.mjs",
     "bundle-report": "node scripts/generate-bundle-report.mjs",
     "measure-font-perf": "node scripts/measure-font-perf.mjs",
@@ -27,6 +28,7 @@
     "test:visual:update": "playwright test e2e/visual-regression.spec.ts --project=chromium --update-snapshots"
   },
   "dependencies": {
+    "@sentry/nextjs": "^9.0.0",
     "@dnd-kit/core": "^5.0.0",
     "@dnd-kit/sortable": "^6.0.0",
     "@ledgerhq/hw-app-str": "^6.28.0",

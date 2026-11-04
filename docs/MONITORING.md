@@ -43,6 +43,8 @@ browser ──POST /api/metrics──▶ Next.js server (in-memory registry)
   text-exposition renderer.
 - [`frontend/app/api/metrics/route.ts`](../frontend/app/api/metrics/route.ts) serves `GET`
   (scrape) and accepts `POST` (browser beacon).
+- [`frontend/app/api/csp-report/route.ts`](../frontend/app/api/csp-report/route.ts) ingests
+  browser CSP violations and records them as metrics.
 
 > **Counters are per-process and in memory.** They reset on deploy and each replica holds
 > its own values. Scrape every replica and aggregate in PromQL (`sum by (...)`), and prefer
@@ -59,6 +61,7 @@ browser ──POST /api/metrics──▶ Next.js server (in-memory registry)
 | `stellarwork_contract_tx_duration_milliseconds` | histogram | `method`, `network` | End-to-end invocation latency |
 | `stellarwork_rpc_errors_total` | counter | `kind`, `network` | Stellar RPC failures by coarse kind |
 | `stellarwork_client_errors_total` | counter | `kind`, `path` | Unhandled frontend errors |
+| `stellarwork_csp_violations_total` | counter | `directive`, `blocked_uri`, `document_uri` | CSP violations reported via `/api/csp-report` |
 | `stellarwork_http_requests_total` | counter | `route`, `status` | HTTP requests by route and status code |
 | `stellarwork_http_request_duration_milliseconds` | histogram | `route` | HTTP request processing latency |
 | `stellarwork_http_errors_total` | counter | `route` | HTTP responses with 4xx/5xx status |
@@ -86,6 +89,20 @@ topk(5, histogram_quantile(0.95,
 
 ## Alerts
 
+Defined in [`monitoring/prometheus/alerts.yml`](../monitoring/prometheus/alerts.yml). For complete operational triage, diagnostic commands, mitigation steps, and escalation paths for each alert, see the [**Alert Response Playbooks**](./alert-response-playbooks.md).
+
+| Alert | Severity | Condition | Response Playbook |
+| ----- | -------- | --------- | ----------------- |
+| `FrontendTargetDown` | critical | Scrape target down for 5m | [Playbook](./alert-response-playbooks.md#frontendtargetdown) |
+| `SyntheticProbeFailing` | critical | Blackbox probe failing for 5m | [Playbook](./alert-response-playbooks.md#syntheticprobefailing) |
+| `ContractTxFailureRateHigh` | critical | >10% invocation failures over 10m | [Playbook](./alert-response-playbooks.md#contracttxfailureratehigh) |
+| `ContractTxLatencyHigh` | warning | p95 latency >20s for 15m | [Playbook](./alert-response-playbooks.md#contracttxlatencyhigh) |
+| `RpcErrorSpike` | warning | >0.5 RPC errors/sec for 10m | [Playbook](./alert-response-playbooks.md#rpcerrorspike) |
+| `LcpRegression` | warning | p75 LCP >2.5s for 30m | [Playbook](./alert-response-playbooks.md#lcpregression) |
+| `InpRegression` | warning | p75 INP >200ms for 30m | [Playbook](./alert-response-playbooks.md#inpregression) |
+| `ClientErrorSpike` | warning | >1 client error/sec for 10m | [Playbook](./alert-response-playbooks.md#clienterrorspike) |
+| `HttpErrorRateHigh` | warning | >1% HTTP 4xx/5xx responses for 10m | [Playbook](./alert-response-playbooks.md#httperrorratehigh) |
+| `HttpLatencyHigh` | warning | p95 HTTP latency >3s for 15m | [Playbook](./alert-response-playbooks.md#httplatencyhigh) |
 Defined in [`monitoring/prometheus/alerts.yml`](../monitoring/prometheus/alerts.yml).
 
 | Alert | Severity | Condition |
@@ -98,6 +115,7 @@ Defined in [`monitoring/prometheus/alerts.yml`](../monitoring/prometheus/alerts.
 | `LcpRegression` | warning | p75 LCP >2.5s for 30m |
 | `InpRegression` | warning | p75 INP >200ms for 30m |
 | `ClientErrorSpike` | warning | >1 client error/sec for 10m |
+| `CspViolationSpike` | warning | >0.5 CSP violations/sec for 5m |
 | `HttpErrorRateHigh` | warning | >1% HTTP 4xx/5xx responses for 10m |
 | `HttpLatencyHigh` | warning | p95 HTTP latency >3s for 15m |
 

@@ -1,6 +1,6 @@
 # Contract Function Quick Reference
 
-This document provides a quick reference for the `EscrowContract` methods, expected states, and input/output parameters.
+This document provides a quick reference for the `EscrowContract` methods, expected states, and input/output parameters. For complete type mappings, unit conversions, and frontend representations, see the [Data Dictionary](file:///C:/Users/JUST%20J/repos/Stellar-work-/docs/DATA_DICTIONARY.md).
 
 ## Core Lifecycle Methods
 
@@ -66,8 +66,19 @@ This document provides a quick reference for the `EscrowContract` methods, expec
 | `get_fee_bps` | - | Returns the current platform fee in basis points (default: 250 = 2.5%). |
 | `update_fee_bps` | `new_fee_bps: i128` | Updates the fee (requires admin auth). |
 | `withdraw_fees` | `token: Address` | Transfers accrued fees to the admin (requires admin auth). |
-| `add_allowed_token`| `token: Address` | Whitelists a token for use in jobs (requires admin auth). |
-| `is_token_allowed` | `token: Address` | Returns whether a token is whitelisted. |
+| `add_allowed_token` | `token: Address` | Adds a token to the allowed-token registry (requires admin auth). |
+| `remove_allowed_token` | `token: Address` | Removes a token from the registry (requires admin auth; blocked with `TokenInUse` if active escrow jobs exist). |
+| `remove_allowed_token_override` | `token: Address`, `zero_balance_override: bool` | Explicit admin override for zero-balance removal; funded escrows cannot be bypassed. |
+| `get_token_active_escrow_count` | `token: Address` | Returns the count of active escrow jobs currently holding this token. |
+| `get_allowed_tokens` | - | Returns a stable, sorted list of all currently allowed payment tokens. |
+| `get_user_profile_summary` | `address: Address` | Returns `ProfileSummary` (completed/active jobs, rating aggregate, verification status, and access status) in O(1). |
+| `is_token_allowed` | `token: Address` | Returns whether a token is allowed. |
+
+The `add_token_to_whitelist`, `remove_token_from_whitelist`, and
+`is_token_whitelisted` entrypoints are deprecated compatibility aliases. Use
+the corresponding canonical functions for new integrations. The aliases remain
+available and use the same `AllowedToken(token)` storage key; no storage
+migration is needed.
 
 ### `get_admin` Return Format
 

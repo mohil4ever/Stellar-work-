@@ -286,7 +286,7 @@ import { sha256Hex, htmlToPlainText } from "@/lib/crypto";
 
 export default function PostJobPage() {
   const router = useRouter();
-  const { wallet, connectWallet } = useWallet();
+  const { wallet, walletNetwork, connectWallet } = useWallet();
   const [amount, setAmount] = useState("");
   const [bonusAmount, setBonusAmount] = useState("");
   const [description, setDescription] = useState("");
@@ -298,6 +298,7 @@ export default function PostJobPage() {
   const [tokenAddress, setTokenAddress] = useState(
     process.env.NEXT_PUBLIC_NATIVE_TOKEN ?? "",
   );
+  const [termsAcknowledged, setTermsAcknowledged] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
@@ -393,6 +394,14 @@ export default function PostJobPage() {
       setHasDraft(true);
     }
   }, [wallet]);
+
+  // BUG-28: token addresses differ per network, so drop a stale one on switch.
+  const prevNetworkRef = useRef(walletNetwork);
+  useEffect(() => {
+    if (prevNetworkRef.current === walletNetwork) return;
+    prevNetworkRef.current = walletNetwork;
+    setTokenAddress(process.env.NEXT_PUBLIC_NATIVE_TOKEN ?? "");
+  }, [walletNetwork]);
 
   useEffect(() => {
     if (!wallet) {
@@ -1040,10 +1049,15 @@ export default function PostJobPage() {
           </div>
         )}
 
+        <label className="flex items-start gap-2 text-xs text-slate-600">
+          <input type="checkbox" checked={termsAcknowledged} onChange={(e) => setTermsAcknowledged(e.target.checked)} className="mt-0.5" />
+          I confirm the platform fee, payment token, deadline, and cancellation policy.
+        </label>
+
         <button
           type="submit"
           className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
-          disabled={submitting || estimating || rateLimit.isLimited}
+          disabled={!termsAcknowledged || submitting || estimating || rateLimit.isLimited}
           aria-busy={submitting || estimating}
         >
           {submitting

@@ -220,24 +220,7 @@ Both parties agree to cancel with a custom split. Transitions to `Cancelled`.
 
 **Event:** `job_mutually_cancelled` — data: `(job_id, client, freelancer, client_share, freelancer_share)`
 
----
 
-### Dispute Functions
-
-#### `raise_dispute(caller: Address, job_id: u64)`
-
-Either party raises a dispute. Transitions from `InProgress` or `SubmittedForReview` to `Disputed`.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `caller` | `Address` | Must be the client or freelancer. Must authorize. |
-| `job_id` | `u64` | ID of the job. |
-
-**Errors:** `JobNotFound` (1), `InvalidStatus` (3), `Unauthorized` (2)
-
-**Event:** `job_disputed` — data: `(job_id, caller)`
-
----
 
 #### `resolve_dispute(job_id: u64, resolution: DisputeResolution)`
 
@@ -275,6 +258,7 @@ Admin resolves a disputed job. Distributes funds based on `client_bps` share.
 | `get_max_active_jobs_per_client()` | — | `u32` | Max active jobs per client (0 = unlimited). |
 | `get_client_active_jobs_count(client)` | `client: Address` | `u32` | Active job count for a specific client. |
 | `is_token_allowed(token)` | `token: Address` | `bool` | Whether a token is in the whitelist. |
+| `is_token_whitelisted(token)` | `token: Address` | `bool` | Deprecated compatibility alias for `is_token_allowed`. |
 
 ---
 
@@ -287,6 +271,8 @@ Admin resolves a disputed job. Distributes funds based on `client_bps` share.
 | `withdraw_fees(token)` | `token: Address` | Withdraw accrued fees for a token to admin. Admin only. |
 | `add_allowed_token(token)` | `token: Address` | Add a token to the whitelist. Admin only. |
 | `remove_allowed_token(token)` | `token: Address` | Remove a token from the whitelist. Admin only. |
+| `add_token_to_whitelist(token)` | `token: Address` | Deprecated compatibility alias for `add_allowed_token`. |
+| `remove_token_from_whitelist(token)` | `token: Address` | Deprecated compatibility alias for `remove_allowed_token`. |
 | `set_desc_payload_max(caller, max_bytes)` | `caller: Address, max_bytes: u32` | Set max description payload size (32-65,536). Admin only. |
 | `set_max_active_jobs_per_client(caller, limit)` | `caller: Address, limit: u32` | Set max active jobs per client (0 = unlimited). Admin only. |
 | `transfer_admin(caller, new_admin)` | `caller: Address, new_admin: Address` | Transfer admin role. Current admin only. |
@@ -388,15 +374,7 @@ see the [Smart Contract Upgrade and Migration Runbook](contract-upgrade-runbook.
 Contract error variants and the messages the interface should show for them are
 catalogued in [Contract Errors -> User-Facing Messages](contract-error-messages.md).
 
-## Token Whitelist
 
-The contract maintains a whitelist of allowed token addresses. Only whitelisted tokens can be used for job payments.
-
-- The `native_token` passed to `initialize` is automatically whitelisted.
-- Admin can add tokens via `add_allowed_token(token)`.
-- Admin can remove tokens via `remove_allowed_token(token)`.
-- `post_job` validates the token is whitelisted before accepting payment.
-- Each job stores its token address for use during payout.
 
 ## Storage TTL Management
 

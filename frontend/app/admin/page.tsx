@@ -7,6 +7,7 @@ import {
   adminGetAllJobs,
   adminGetJobCount,
   getJobStatusCounts,
+  getPlatformFeeRate,
   setWhitelistMode,
   addToBlacklist,
   removeFromBlacklist,
@@ -14,6 +15,7 @@ import {
   removeFromWhitelist,
   isWhitelistModeEnabled,
 } from "@/lib/contract";
+import AdminPanelSkeleton from "@/components/AdminPanelSkeleton";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import EmptyState from "@/components/EmptyState";
 import ErrorBanner from "@/components/ErrorBanner";
@@ -35,6 +37,7 @@ import {
   validateStellarAddress,
   MAX_ANNOUNCEMENT_MSG_LEN,
 } from "@/lib/sanitize";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import {
   getAllFlagNames,
   getFlagDescription,
@@ -45,12 +48,23 @@ import {
 } from "@/lib/feature-flags";
 
 const TX_LOG_KEY = "stellarwork:admin-withdrawals";
+// #1050 — platform fee change history stored locally
+const FEE_HISTORY_KEY = "stellarwork:admin-fee-history";
+const ADMIN_JOBS_PAGE_SIZE = 50;
 
 interface WithdrawalTx {
   id: string;
   amount: string;
   timestamp: number;
   status: "completed";
+}
+
+interface FeeChangeRecord {
+  id: string;
+  feeBps: number;
+  note: string;
+  timestamp: number;
+  changedBy: string;
 }
 
 const STATUS_LABELS: Record<JobStatus, string> = {
@@ -68,6 +82,9 @@ export default function AdminPage() {
   const [fees, setFees] = useState<bigint>(0n);
   const [nativeToken, setNativeToken] = useState<string>("");
   const [jobs, setJobs] = useState<Array<{ id: number; job: Job }>>([]);
+  const [jobCount, setJobCount] = useState(0);
+  const [jobPage, setJobPage] = useState(0);
+  const [jobsLoading, setJobsLoading] = useState(false);
   const [statusCounts, setStatusCounts] = useState<JobStatusCounts>({
     open: 0,
     in_progress: 0,
@@ -100,6 +117,12 @@ export default function AdminPage() {
   const [featureFlags, setFeatureFlags] = useState<Record<string, boolean>>({});
   const flagNames = useMemo(() => getAllFlagNames(), []);
 
+  // #1050 — platform fee history
+  const [feeHistory, setFeeHistory] = useState<FeeChangeRecord[]>([]);
+  const [feeChangeNote, setFeeChangeNote] = useState("");
+  const [liveFeeRateBps, setLiveFeeRateBps] = useState<number | null>(null);
+  const [recordingFee, setRecordingFee] = useState(false);
+
   useEffect(() => {
     initFeatureFlags();
     const current: Record<string, boolean> = {};
@@ -126,6 +149,8 @@ export default function AdminPage() {
       const envAdmin = process.env.NEXT_PUBLIC_ADMIN_ADDRESS;
       if (!envAdmin || walletAddress !== envAdmin) {
         setIsAdmin(false);
+        setJobCount(0);
+        setJobs([]);
         setLoading(false);
         return;
       }
@@ -133,17 +158,10 @@ export default function AdminPage() {
       const actualAdmin = envAdmin;
 
       const count = await adminGetJobCount(actualAdmin);
-      setJobs([]);
-      setLoading(true);
-      let fetched: { id: number; job: Awaited<ReturnType<typeof adminGetAllJobs>>[number] }[] = [];
-      try {
-        const limit = 50;
-        const list = await adminGetAllJobs(actualAdmin, 0, Math.max(1, count > limit ? limit : count));
-        fetched = list.map((job, idx) => ({ id: idx + 1, job }));
-        setJobs(fetched);
-      } catch {
-        setJobs([]);
-      }
+      setJobCount(count);
+      setJobPage((currentPage) =>
+        Math.min(currentPage, Math.max(0, Math.ceil(count / ADMIN_JOBS_PAGE_SIZE) - 1)),
+      );
 
       // Fetch status counts in a single contract call instead of
       // iterating all jobs client-side.
@@ -151,19 +169,14 @@ export default function AdminPage() {
         const counts = await getJobStatusCounts();
         setStatusCounts(counts);
       } catch {
-        // Fallback to client-side computation if contract call fails
-        const fallback = fetched.reduce<Record<string, number>>((acc, { job }) => {
-          acc[job.status] = (acc[job.status] || 0) + 1;
-          return acc;
-        }, {});
         setStatusCounts({
-          open: fallback["Open"] || 0,
-          in_progress: fallback["InProgress"] || 0,
-          submitted_for_review: fallback["SubmittedForReview"] || 0,
-          completed: fallback["Completed"] || 0,
-          cancelled: fallback["Cancelled"] || 0,
-          disputed: fallback["Disputed"] || 0,
-          total: fetched.length,
+          open: 0,
+          in_progress: 0,
+          submitted_for_review: 0,
+          completed: 0,
+          cancelled: 0,
+          disputed: 0,
+          total: count,
         });
       }
 
@@ -178,6 +191,48 @@ export default function AdminPage() {
   }, []);
 
   useEffect(() => {
+    if (!wallet || isAdmin !== true) return;
+    const actualAdmin = process.env.NEXT_PUBLIC_ADMIN_ADDRESS;
+    if (!actualAdmin) return;
+
+    const pageCount = Math.ceil(jobCount / ADMIN_JOBS_PAGE_SIZE);
+    if (jobPage >= pageCount && jobPage > 0) {
+      setJobPage(Math.max(0, pageCount - 1));
+      return;
+    }
+    if (jobCount === 0) {
+      setJobs([]);
+      setJobsLoading(false);
+      return;
+    }
+
+    const startIndex = jobPage * ADMIN_JOBS_PAGE_SIZE;
+    const limit = Math.min(ADMIN_JOBS_PAGE_SIZE, jobCount - startIndex);
+    let cancelled = false;
+    setJobsLoading(true);
+    setJobs([]);
+    adminGetAllJobs(actualAdmin, startIndex, limit)
+      .then((list) => {
+        if (!cancelled) {
+          setJobs(list.map((job, index) => ({ id: startIndex + index + 1, job })));
+        }
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) {
+          setJobs([]);
+          setError(e instanceof Error ? e.message : "Failed to load jobs.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setJobsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [wallet, isAdmin, jobCount, jobPage]);
+
+  useEffect(() => {
     if (typeof window !== "undefined") {
       try {
         const raw = localStorage.getItem(TX_LOG_KEY);
@@ -190,11 +245,23 @@ export default function AdminPage() {
           setAnnouncementType(parsed.type);
           setAnnouncementEnabled(parsed.enabled);
         }
+
+        // #1050 — load fee change history
+        const rawFeeHist = localStorage.getItem(FEE_HISTORY_KEY);
+        if (rawFeeHist) setFeeHistory(JSON.parse(rawFeeHist) as FeeChangeRecord[]);
       } catch {
         /* ignore */
       }
     }
   }, []);
+
+  // #1050 — fetch live platform fee rate when admin data loads
+  useEffect(() => {
+    if (!wallet) return;
+    getPlatformFeeRate()
+      .then((bps) => { if (bps !== null) setLiveFeeRateBps(bps); })
+      .catch(() => {});
+  }, [wallet]);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -214,6 +281,9 @@ export default function AdminPage() {
       setIsAdmin(null);
       setFees(0n);
       setJobs([]);
+      setJobCount(0);
+      setJobPage(0);
+      setJobsLoading(false);
       setStatusCounts({ open: 0, in_progress: 0, submitted_for_review: 0, completed: 0, cancelled: 0, disputed: 0, total: 0 });
       setError(null);
       setSuccessMessage(null);
@@ -363,7 +433,7 @@ export default function AdminPage() {
     return (
       <section className="mx-auto max-w-3xl space-y-6">
         <h1 className="text-2xl font-semibold">Admin Panel</h1>
-        <p className="text-sm text-slate-600">Loading admin data...</p>
+        <AdminPanelSkeleton />
       </section>
     );
   }
@@ -671,6 +741,81 @@ export default function AdminPage() {
           onCancel={() => setShowWithdrawConfirm(false)}
         />
       )}
+
+      {/* #1050 — Platform Fee Change History */}
+      <SectionCard title="Platform Fee History">
+        <div className="mt-3 space-y-4">
+          {liveFeeRateBps !== null && (
+            <p className="text-sm text-slate-700">
+              Current on-chain fee rate:{" "}
+              <strong className="font-semibold">{(liveFeeRateBps / 100).toFixed(2)}%</strong>
+            </p>
+          )}
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+            <div className="flex-1">
+              <label className="block text-sm font-medium text-slate-700" htmlFor="fee-change-note">
+                Record a fee change note
+              </label>
+              <input
+                id="fee-change-note"
+                type="text"
+                className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+                placeholder={`e.g. Increased fee to ${liveFeeRateBps !== null ? (liveFeeRateBps / 100).toFixed(2) : "2.50"}% — market adjustment`}
+                value={feeChangeNote}
+                onChange={(e) => setFeeChangeNote(e.target.value)}
+                maxLength={200}
+              />
+            </div>
+            <button
+              className="rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={!feeChangeNote.trim() || recordingFee}
+              onClick={() => {
+                if (!wallet || !feeChangeNote.trim()) return;
+                setRecordingFee(true);
+                const entry: FeeChangeRecord = {
+                  id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                  feeBps: liveFeeRateBps ?? 250,
+                  note: feeChangeNote.trim(),
+                  timestamp: Date.now(),
+                  changedBy: wallet,
+                };
+                setFeeHistory((prev) => {
+                  const next = [entry, ...prev].slice(0, 50);
+                  try { localStorage.setItem(FEE_HISTORY_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+                  return next;
+                });
+                setFeeChangeNote("");
+                setRecordingFee(false);
+              }}
+            >
+              Record
+            </button>
+          </div>
+          {feeHistory.length === 0 ? (
+            <p className="text-sm text-slate-400 italic">No fee change records yet. Use the form above to log a fee adjustment.</p>
+          ) : (
+            <div className="divide-y divide-slate-100 rounded-md border border-slate-200">
+              {feeHistory.map((entry) => (
+                <div key={entry.id} className="flex items-start justify-between px-4 py-3 text-sm">
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-slate-900 truncate">{entry.note}</p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Rate at time: <strong>{(entry.feeBps / 100).toFixed(2)}%</strong>{" • "}
+                      {new Date(entry.timestamp).toLocaleDateString("en-GB", {
+                        day: "numeric", month: "short", year: "numeric",
+                        hour: "2-digit", minute: "2-digit",
+                      })}
+                    </p>
+                  </div>
+                  <span className="ml-4 shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">
+                    {(entry.feeBps / 100).toFixed(2)}%
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </SectionCard>
 
       {withdrawals.length > 0 && (
         <SectionCard title="Withdrawal History">
